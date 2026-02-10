@@ -1,0 +1,42 @@
+
+# 🔧 关键技术细节
+
+## 1. 进程与管道关系
+
+### 每个 MCP Server 都是独立的子进程
+proc1 = subprocess.Popen(...)  # 创建管道组A
+proc2 = subprocess.Popen(...)  # 创建管道组B（完全独立！）
+
+### 每个 proc 对象有自己的 stdin/stdout 管道
+proc1.stdout ≠ proc2.stdout （不同的文件描述符）
+
+### 线程架构
+Python 主进程 (PID: 1000)
+├── 主线程 (Main Thread)
+│   ├── 处理用户输入
+│   ├── 定义回调函数
+│   ├── 发起工具调用
+│   └── 保持 UI 响应（永不阻塞！）
+│
+├── 监听线程1 (Listener Thread)
+│   ├── 监控 weather_proc.stdout
+│   ├── 解析 JSON-RPC 响应
+│   └── 执行 weather 相关回调
+│
+├── 监听线程2 (Listener Thread)
+│   └── 监控 stock_proc.stdout
+│
+├── 子进程1: weather_mcp.py (PID: 1001)
+└── 子进程2: stock_mcp.py (PID: 1002)
+note: 监听线程是后台工作者，专门处理响应
+
+
+### 回调执行位置
+在哪里执行：在监听线程中执行，不是在子进程中
+回调是函数对象，不是序列化的代码
+性能影响：如果回调执行很久，会阻塞该监听线程
+该 Server 的其他响应需要等待
+解决方案：在回调中快速返回，用线程池处理
+
+
+
